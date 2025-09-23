@@ -1,4 +1,5 @@
 # map-compare
+nvm use 18.20.7
 
 ## Project setup
 ```
