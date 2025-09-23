@@ -69,39 +69,65 @@ const tiandituToken = process.env.VUE_APP_TIANDITU_TOKEN || ''
 
 const basemapOptions = [
   {
-    key: 'osm',
-    label: 'OSM',
-    createLayer: () =>
-      new TileLayer({
-        source: new OSM()
-      })
-  },
-  {
-    key: 'arcgis',
-    label: 'ArcGIS',
-    createLayer: () =>
-      new TileLayer({
-        source: new XYZ({
-          url:
-            'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-          attributions:
-            'Tiles © Esri — Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
-        })
-      })
-  },
-  {
     key: 'tianditu',
     label: '天地图',
     createLayer: () =>
       new TileLayer({
         source: new XYZ({
-          url: `https://t{s}.tianditu.gov.cn/DataServer?T=img_w&x={x}&y={y}&l={z}&tk=${tiandituToken}`,
+          url: `https://t4.tianditu.com/DataServer?T=img_w&x={x}&y={y}&l={z}&tk=${tiandituToken}`,
           attributions: '© 天地图',
           subdomains: ['0', '1', '2', '3', '4', '5', '6', '7'],
           wrapX: true
         })
       })
-  }
+  },
+  {
+    key: 'gdSat',
+    label: '高德卫星图',
+    createLayer: () =>
+      new TileLayer({
+        source: new XYZ({
+          url: `https://webst01.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&style=6`,
+          attributions: '© 高德卫星图',
+          subdomains: ['0', '1', '2', '3', '4', '5', '6', '7'],
+          wrapX: true
+        })
+      })
+  },
+  {
+    key: 'tiandituRd',
+    label: '天地图路网图',
+    createLayer: () =>
+      new TileLayer({
+        source: new XYZ({
+          url: `http://t4.tianditu.com/DataServer?T=vec_w&x={x}&y={y}&l={z}&tk=${tiandituToken}`,
+          attributions: '© 天地图',
+          subdomains: ['0', '1', '2', '3', '4', '5', '6', '7'],
+          wrapX: true
+        })
+      })
+  },
+  {
+    key: 'osm',
+    label: 'OSM',
+    createLayer: () =>
+        new TileLayer({
+          source: new OSM()
+        })
+  },
+  {
+    key: 'arcgis',
+    label: 'ArcGIS',
+    createLayer: () =>
+        new TileLayer({
+          source: new XYZ({
+            url:
+                'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+            attributions:
+                'Tiles © Esri — Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+          })
+        })
+  },
 ]
 
 const createBasemapLayer = (key) => {
