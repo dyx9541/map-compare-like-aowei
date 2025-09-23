@@ -10,8 +10,13 @@
 </template>
 
 <script>
-/* global ol */
 import { onMounted, ref } from 'vue'
+import Map from 'ol/Map'
+import View from 'ol/View'
+import TileLayer from 'ol/layer/Tile'
+import OSM from 'ol/source/OSM'
+import { fromLonLat } from 'ol/proj'
+import 'ol/ol.css'
 
 export default {
   name: 'App',
@@ -20,19 +25,19 @@ export default {
     const rightMap = ref(null)
 
     const createMap = (target) => {
-      if (!target || typeof ol === 'undefined') {
+      if (!target) {
         return null
       }
 
-      return new ol.Map({
+      return new Map({
         target,
         layers: [
-          new ol.layer.Tile({
-            source: new ol.source.OSM()
+          new TileLayer({
+            source: new OSM()
           })
         ],
-        view: new ol.View({
-          center: ol.proj.fromLonLat([0, 0]),
+        view: new View({
+          center: fromLonLat([0, 0]),
           zoom: 2
         })
       })
