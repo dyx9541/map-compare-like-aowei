@@ -64,7 +64,7 @@ const rightMap = ref(null)
 let createdMaps = []
 
 const showBasemapPanel = ref(false)
-const selectedBasemap = ref('osm')
+const selectedBasemap = ref('tianditu')
 const tiandituToken = process.env.VUE_APP_TIANDITU_TOKEN || ''
 
 const basemapOptions = [
@@ -175,8 +175,8 @@ const createMap = (target, view) =>
 
 onMounted(() => {
   const view = new View({
-    center: fromLonLat([0, 0]),
-    zoom: 2
+    center: fromLonLat([118, 32]),
+    zoom: 6
   })
 
   createdMaps = [leftMap.value, rightMap.value]
