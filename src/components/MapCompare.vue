@@ -223,8 +223,8 @@ let createdMaps = []
 
 const showBasemapPanel = ref(false)
 const showLayerPanel = ref(false)
-const selectedBasemap = ref('osm')
 const showRoadNetwork = ref(false)
+const selectedBasemap = ref('tiandituImagery')
 const tiandituToken = process.env.VUE_APP_TIANDITU_TOKEN || ''
 
 const handleAction = (action) => {
@@ -374,7 +374,7 @@ const basemapOptions = [
     createLayer: () =>
       new TileLayer({
         source: new XYZ({
-          url: `https://t{s}.tianditu.gov.cn/DataServer?T=img_w&x={x}&y={y}&l={z}&tk=${tiandituToken}`,
+          url: `https://t4.tianditu.gov.cn/DataServer?T=img_w&x={x}&y={y}&l={z}&tk=${tiandituToken}`,
           attributions: '© 天地图',
           subdomains: ['0', '1', '2', '3', '4', '5', '6', '7'],
           wrapX: true
@@ -399,7 +399,7 @@ const basemapOptions = [
     createLayer: () =>
       new TileLayer({
         source: new XYZ({
-          url: 'https://wprd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&style=7&x={x}&y={y}&z={z}&scl=1&ltype=2',
+          url: 'https://wprd01.is.autonavi.com/appmaptile?lang=zh_cn&size=1&style=7&x={x}&y={y}&z={z}&scl=1&ltype=2',
           attributions: '© 高德地图',
           subdomains: ['1', '2', '3', '4'],
           crossOrigin: 'anonymous',
@@ -413,7 +413,7 @@ const basemapOptions = [
     createLayer: () =>
       new TileLayer({
         source: new XYZ({
-          url: 'https://webst0{s}.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&style=6',
+          url: 'https://webst01.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&style=6',
           attributions: '© 高德地图',
           subdomains: ['1', '2', '3', '4'],
           crossOrigin: 'anonymous',
