@@ -1,5 +1,107 @@
 <template>
   <div class="map-compare">
+    <header class="top-menu" role="toolbar" aria-label="快速工具">
+      <div class="menu-group" aria-label="数据与收藏">
+        <button
+          type="button"
+          class="top-menu-button"
+          title="导入地图文件"
+          aria-label="导入地图文件"
+          @click="handleAction('import')"
+        >
+          <span aria-hidden="true">📥</span>
+        </button>
+        <button
+          type="button"
+          class="top-menu-button"
+          title="保存收藏对象"
+          aria-label="保存收藏对象"
+          @click="handleAction('saveFavorite')"
+        >
+          <span aria-hidden="true">⭐</span>
+        </button>
+        <button
+          type="button"
+          class="top-menu-button"
+          title="显示收藏夹"
+          aria-label="显示收藏夹"
+          @click="handleAction('showFavorites')"
+        >
+          <span aria-hidden="true">📁</span>
+        </button>
+        <button
+          type="button"
+          class="top-menu-button"
+          :class="{ 'is-active': showRoadNetwork }"
+          :aria-pressed="showRoadNetwork ? 'true' : 'false'"
+          title="显示或隐藏路网"
+          aria-label="显示或隐藏路网"
+          @click="toggleRoadNetwork"
+        >
+          <span aria-hidden="true">🛣️</span>
+        </button>
+      </div>
+      <div class="menu-divider" role="separator" aria-orientation="vertical"></div>
+      <div class="menu-group" aria-label="测量工具">
+        <button
+          type="button"
+          class="top-menu-button"
+          title="测距"
+          aria-label="测距"
+          @click="handleAction('measureDistance')"
+        >
+          <span aria-hidden="true">📏</span>
+        </button>
+        <button
+          type="button"
+          class="top-menu-button"
+          title="测面积"
+          aria-label="测面积"
+          @click="handleAction('measureArea')"
+        >
+          <span aria-hidden="true">📐</span>
+        </button>
+        <button
+          type="button"
+          class="top-menu-button"
+          title="定向测距"
+          aria-label="定向测距"
+          @click="handleAction('directionDistance')"
+        >
+          <span aria-hidden="true">🧭</span>
+        </button>
+        <button
+          type="button"
+          class="top-menu-button"
+          title="三维计算"
+          aria-label="三维计算"
+          @click="handleAction('threeDimensionalCalc')"
+        >
+          <span aria-hidden="true">🧮</span>
+        </button>
+      </div>
+      <div class="menu-divider" role="separator" aria-orientation="vertical"></div>
+      <div class="menu-group" aria-label="标绘工具">
+        <button
+          type="button"
+          class="top-menu-button"
+          title="添加文本"
+          aria-label="添加文本"
+          @click="handleAction('addText')"
+        >
+          <span aria-hidden="true">✏️</span>
+        </button>
+        <button
+          type="button"
+          class="top-menu-button"
+          title="画标绘点线面"
+          aria-label="画标绘点线面"
+          @click="handleAction('drawGraphics')"
+        >
+          <span aria-hidden="true">🖊️</span>
+        </button>
+      </div>
+    </header>
     <div class="map-toolbar">
       <button
         class="toolbar-button"
@@ -121,8 +223,13 @@ let createdMaps = []
 
 const showBasemapPanel = ref(false)
 const showLayerPanel = ref(false)
+const showRoadNetwork = ref(false)
 const selectedBasemap = ref('tiandituImagery')
 const tiandituToken = process.env.VUE_APP_TIANDITU_TOKEN || ''
+
+const handleAction = (action) => {
+  console.info(`[toolbar] ${action} clicked`)
+}
 
 const createOverlayLeaf = (key, title, createLayer) => ({
   key,
@@ -353,6 +460,27 @@ const selectBasemap = (key) => {
   showBasemapPanel.value = false
 }
 
+const roadNetworkOverlay = {
+  createLayer: () =>
+    new TileLayer({
+      source: new XYZ({
+        url: 'https://stamen-tiles.a.ssl.fastly.net/toner-lines/{z}/{x}/{y}.png',
+        attributions:
+          'Map tiles by Stamen Design, under CC BY 3.0. Data by OpenStreetMap, under ODbL.',
+        crossOrigin: 'anonymous',
+        maxZoom: 19
+      })
+    }),
+  instances: []
+}
+
+const toggleRoadNetwork = () => {
+  showRoadNetwork.value = !showRoadNetwork.value
+  roadNetworkOverlay.instances.forEach((layer) => {
+    layer.setVisible(showRoadNetwork.value)
+  })
+}
+
 const toggleLayer = (leaf, checked) => {
   leaf.visible = checked
   updateLeafVisibility(leaf, checked)
@@ -393,6 +521,10 @@ onMounted(() => {
     .filter(Boolean)
     .map((target) => {
       const mapInstance = createMap(target, view)
+      const roadNetworkLayer = roadNetworkOverlay.createLayer()
+      roadNetworkLayer.setVisible(showRoadNetwork.value)
+      mapInstance.addLayer(roadNetworkLayer)
+      roadNetworkOverlay.instances.push(roadNetworkLayer)
       forEachOverlayLeaf((leaf) => {
         const layerInstance = leaf.createLayer()
         layerInstance.setVisible(leaf.visible)
@@ -409,6 +541,7 @@ onBeforeUnmount(() => {
   forEachOverlayLeaf((leaf) => {
     leaf.instances.splice(0, leaf.instances.length)
   })
+  roadNetworkOverlay.instances.splice(0, roadNetworkOverlay.instances.length)
 })
 </script>
 
@@ -417,6 +550,65 @@ onBeforeUnmount(() => {
   position: relative;
   display: flex;
   height: 100%;
+}
+
+.top-menu {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 10px 18px;
+  background-color: rgba(255, 255, 255, 0.95);
+  border-radius: 999px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  transform: translateX(-50%);
+  z-index: 12;
+}
+
+.menu-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.menu-divider {
+  width: 1px;
+  height: 28px;
+  background: rgba(31, 120, 255, 0.25);
+}
+
+.top-menu-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 50%;
+  background: #f0f4ff;
+  color: #1f1f1f;
+  cursor: pointer;
+  font-size: 18px;
+  transition: background-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.top-menu-button:hover {
+  background: #dbe6ff;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12);
+}
+
+.top-menu-button:focus {
+  outline: 2px solid #1f78ff;
+  outline-offset: 2px;
+}
+
+.top-menu-button.is-active {
+  background: #1f78ff;
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(31, 120, 255, 0.35);
 }
 
 .map {
