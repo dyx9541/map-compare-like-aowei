@@ -106,6 +106,17 @@
       <button
         class="toolbar-button"
         type="button"
+        title="卷帘开关"
+        aria-label="卷帘开关"
+        :class="{ 'is-active': isShutterOpen }"
+        :aria-pressed="isShutterOpen ? 'true' : 'false'"
+        @click="toggleShutter"
+      >
+        <span class="icon" aria-hidden="true">🪟</span>
+      </button>
+      <button
+        class="toolbar-button"
+        type="button"
         title="图层管理"
         aria-label="图层管理"
         :aria-pressed="showLayerPanel ? 'true' : 'false'"
@@ -118,6 +129,7 @@
         type="button"
         title="上传地图文件"
         aria-label="上传地图文件"
+        @click="openImportDialog"
       >
         <span class="icon" aria-hidden="true">⤴️</span>
       </button>
@@ -192,13 +204,46 @@
         <span class="option-label">{{ option.label }}</span>
       </button>
     </div>
+    <div
+      v-if="showImportDialog"
+      class="import-dialog-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-label="导入地图文件"
+    >
+      <div class="import-dialog">
+        <h3>导入地图文件</h3>
+        <p>请选择需要加载的 .shp 文件，导入后将显示在左右两侧地图上。</p>
+        <input
+          ref="importFileInput"
+          class="file-input"
+          type="file"
+          accept=".shp"
+          @change="handleImportFileChange"
+        />
+        <p v-if="importState.error" class="import-error">{{ importState.error }}</p>
+        <div class="import-actions">
+          <button type="button" class="cancel-btn" @click="closeImportDialog" :disabled="importState.loading">
+            取消
+          </button>
+          <button
+            type="button"
+            class="confirm-btn"
+            :disabled="importState.loading"
+            @click="handleImportConfirm"
+          >
+            {{ importState.loading ? '导入中…' : '开始导入' }}
+          </button>
+        </div>
+      </div>
+    </div>
     <div ref="leftMap" class="map"></div>
-    <div ref="rightMap" class="map"></div>
+    <div v-if="isShutterOpen" ref="rightMap" class="map"></div>
   </div>
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import Map from 'ol/Map'
 import View from 'ol/View'
 import TileLayer from 'ol/layer/Tile'
@@ -211,32 +256,52 @@ import Point from 'ol/geom/Point'
 import LineString from 'ol/geom/LineString'
 import Polygon from 'ol/geom/Polygon'
 import { fromLonLat } from 'ol/proj'
+import { createEmpty, extend as extendExtent, isEmpty as isExtentEmpty } from 'ol/extent'
+import GeoJSON from 'ol/format/GeoJSON'
 import Style from 'ol/style/Style'
 import Stroke from 'ol/style/Stroke'
 import Fill from 'ol/style/Fill'
 import CircleStyle from 'ol/style/Circle'
 import 'ol/ol.css'
+import { parseShapefile } from '../utils/shapefile'
 
 const leftMap = ref(null)
 const rightMap = ref(null)
-let createdMaps = []
+const isShutterOpen = ref(true)
+const mapInstances = new Map()
+let sharedView = null
 
 const showBasemapPanel = ref(false)
 const showLayerPanel = ref(false)
+const showImportDialog = ref(false)
+const importFileInput = ref(null)
+const selectedBasemap = ref('osm')
 const showRoadNetwork = ref(false)
-const selectedBasemap = ref('tiandituImagery')
 const tiandituToken = process.env.VUE_APP_TIANDITU_TOKEN || ''
+const geoJsonFormat = new GeoJSON()
+
+const importState = reactive({
+  file: null,
+  error: '',
+  loading: false
+})
 
 const handleAction = (action) => {
+  if (action === 'import') {
+    openImportDialog()
+    return
+  }
+
   console.info(`[toolbar] ${action} clicked`)
 }
 
-const createOverlayLeaf = (key, title, createLayer) => ({
+const createOverlayLeaf = (key, title, createLayer, options = {}) => ({
   key,
   title,
   createLayer,
   visible: true,
-  instances: []
+  instances: new Map(),
+  ...options
 })
 
 const overlayLayerTree = reactive([
@@ -327,6 +392,14 @@ const overlayLayerTree = reactive([
   }
 ])
 
+const importedLayerGroup = reactive({
+  key: 'importedLayers',
+  title: '导入图层',
+  children: []
+})
+
+overlayLayerTree.push(importedLayerGroup)
+
 const forEachOverlayLeaf = (callback) => {
   overlayLayerTree.forEach((group) => {
     group.children.forEach((leaf) => callback(leaf))
@@ -374,7 +447,7 @@ const basemapOptions = [
     createLayer: () =>
       new TileLayer({
         source: new XYZ({
-          url: `https://t4.tianditu.gov.cn/DataServer?T=img_w&x={x}&y={y}&l={z}&tk=${tiandituToken}`,
+          url: `https://t{s}.tianditu.gov.cn/DataServer?T=img_w&x={x}&y={y}&l={z}&tk=${tiandituToken}`,
           attributions: '© 天地图',
           subdomains: ['0', '1', '2', '3', '4', '5', '6', '7'],
           wrapX: true
@@ -399,7 +472,7 @@ const basemapOptions = [
     createLayer: () =>
       new TileLayer({
         source: new XYZ({
-          url: 'https://wprd01.is.autonavi.com/appmaptile?lang=zh_cn&size=1&style=7&x={x}&y={y}&z={z}&scl=1&ltype=2',
+          url: 'https://wprd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&style=7&x={x}&y={y}&z={z}&scl=1&ltype=2',
           attributions: '© 高德地图',
           subdomains: ['1', '2', '3', '4'],
           crossOrigin: 'anonymous',
@@ -413,7 +486,7 @@ const basemapOptions = [
     createLayer: () =>
       new TileLayer({
         source: new XYZ({
-          url: 'https://webst01.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&style=6',
+          url: 'https://webst0{s}.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&style=6',
           attributions: '© 高德地图',
           subdomains: ['1', '2', '3', '4'],
           crossOrigin: 'anonymous',
@@ -444,7 +517,7 @@ const selectBasemap = (key) => {
   selectedBasemap.value = key
   const newLayerFactory = () => createBasemapLayer(key)
 
-  createdMaps.forEach((mapInstance) => {
+  mapInstances.forEach((mapInstance) => {
     if (!mapInstance) return
 
     const layers = mapInstance.getLayers()
@@ -471,7 +544,7 @@ const roadNetworkOverlay = {
         maxZoom: 19
       })
     }),
-  instances: []
+  instances: new Map()
 }
 
 const toggleRoadNetwork = () => {
@@ -495,7 +568,8 @@ const toggleGroup = (group, checked) => {
   })
 }
 
-const isGroupChecked = (group) => group.children.every((leaf) => leaf.visible)
+const isGroupChecked = (group) =>
+  group.children.length > 0 && group.children.every((leaf) => leaf.visible)
 
 const isGroupIndeterminate = (group) => {
   const visibleCount = group.children.filter((leaf) => leaf.visible).length
@@ -505,43 +579,259 @@ const isGroupIndeterminate = (group) => {
 const createMap = (target, view) =>
   new Map({
     target,
-    layers: [
-      createBasemapLayer(selectedBasemap.value)
-    ],
+    layers: [createBasemapLayer(selectedBasemap.value)],
     view
   })
 
-onMounted(() => {
-  const view = new View({
+const attachLeafToMap = (leaf, mapId, mapInstance) => {
+  const layerInstance = leaf.createLayer()
+  layerInstance.setVisible(leaf.visible)
+  mapInstance.addLayer(layerInstance)
+  leaf.instances.set(mapId, layerInstance)
+}
+
+const addLeafToExistingMaps = (leaf) => {
+  mapInstances.forEach((mapInstance, mapId) => {
+    attachLeafToMap(leaf, mapId, mapInstance)
+  })
+
+  if (leaf.extent && sharedView && !isExtentEmpty(leaf.extent)) {
+    sharedView.fit(leaf.extent, {
+      padding: [48, 48, 48, 48],
+      maxZoom: 17,
+      duration: 400
+    })
+  }
+}
+
+const registerMapInstance = (mapId, mapInstance) => {
+  mapInstances.set(mapId, mapInstance)
+
+  const roadNetworkLayer = roadNetworkOverlay.createLayer()
+  roadNetworkLayer.setVisible(showRoadNetwork.value)
+  mapInstance.addLayer(roadNetworkLayer)
+  roadNetworkOverlay.instances.set(mapId, roadNetworkLayer)
+
+  forEachOverlayLeaf((leaf) => {
+    attachLeafToMap(leaf, mapId, mapInstance)
+  })
+}
+
+const destroyMap = (mapId) => {
+  const mapInstance = mapInstances.get(mapId)
+  if (!mapInstance) {
+    return
+  }
+
+  const roadNetworkLayer = roadNetworkOverlay.instances.get(mapId)
+  if (roadNetworkLayer) {
+    mapInstance.removeLayer(roadNetworkLayer)
+    roadNetworkOverlay.instances.delete(mapId)
+  }
+
+  forEachOverlayLeaf((leaf) => {
+    const layerInstance = leaf.instances.get(mapId)
+    if (layerInstance) {
+      mapInstance.removeLayer(layerInstance)
+      leaf.instances.delete(mapId)
+    }
+  })
+
+  mapInstance.setTarget(null)
+  mapInstances.delete(mapId)
+}
+
+const ensureRightMap = () => {
+  if (!isShutterOpen.value || mapInstances.has('right')) {
+    return
+  }
+
+  const target = rightMap.value
+  if (!target) {
+    return
+  }
+
+  const view = sharedView || mapInstances.get('left')?.getView() || new View({
     center: fromLonLat([105, 35]),
     zoom: 4
   })
 
-  createdMaps = [leftMap.value, rightMap.value]
-    .filter(Boolean)
-    .map((target) => {
-      const mapInstance = createMap(target, view)
-      const roadNetworkLayer = roadNetworkOverlay.createLayer()
-      roadNetworkLayer.setVisible(showRoadNetwork.value)
-      mapInstance.addLayer(roadNetworkLayer)
-      roadNetworkOverlay.instances.push(roadNetworkLayer)
-      forEachOverlayLeaf((leaf) => {
-        const layerInstance = leaf.createLayer()
-        layerInstance.setVisible(leaf.visible)
-        mapInstance.addLayer(layerInstance)
-        leaf.instances.push(layerInstance)
+  if (!sharedView) {
+    sharedView = view
+  }
+
+  const mapInstance = createMap(target, view)
+  registerMapInstance('right', mapInstance)
+}
+
+const toggleShutter = () => {
+  isShutterOpen.value = !isShutterOpen.value
+}
+
+const resetImportState = () => {
+  importState.file = null
+  importState.error = ''
+  importState.loading = false
+  if (importFileInput.value) {
+    importFileInput.value.value = ''
+  }
+}
+
+const openImportDialog = () => {
+  resetImportState()
+  showImportDialog.value = true
+  showLayerPanel.value = false
+  showBasemapPanel.value = false
+}
+
+const closeImportDialog = () => {
+  resetImportState()
+  showImportDialog.value = false
+}
+
+const handleImportFileChange = (event) => {
+  const [file] = event.target.files || []
+  importState.file = file || null
+  importState.error = ''
+}
+
+const createImportedLeaf = (featureCollection, title) => {
+  const geoJsonString = JSON.stringify(featureCollection)
+  const features = geoJsonFormat.readFeatures(geoJsonString, {
+    dataProjection: 'EPSG:4326',
+    featureProjection: 'EPSG:3857'
+  })
+
+  const extent = features.reduce((acc, feature) => {
+    const geometry = feature.getGeometry()
+    if (geometry) {
+      return extendExtent(acc, geometry.getExtent())
+    }
+    return acc
+  }, createEmpty())
+
+  const styleCache = {
+    point: new Style({
+      image: new CircleStyle({
+        radius: 6,
+        fill: new Fill({ color: 'rgba(255, 152, 0, 0.9)' }),
+        stroke: new Stroke({ color: '#ffffff', width: 2 })
       })
-      return mapInstance
+    }),
+    line: new Style({
+      stroke: new Stroke({ color: 'rgba(255, 152, 0, 0.85)', width: 2.5 })
+    }),
+    polygon: new Style({
+      stroke: new Stroke({ color: 'rgba(255, 87, 34, 0.9)', width: 2 }),
+      fill: new Fill({ color: 'rgba(255, 152, 0, 0.2)' })
     })
+  }
+
+  const getStyleForGeometry = (geometryType) => {
+    switch (geometryType) {
+      case 'Point':
+      case 'MultiPoint':
+        return styleCache.point
+      case 'LineString':
+      case 'MultiLineString':
+        return styleCache.line
+      case 'Polygon':
+      case 'MultiPolygon':
+      default:
+        return styleCache.polygon
+    }
+  }
+
+  return createOverlayLeaf(
+    `imported-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    title,
+    () => {
+      const layerFeatures = geoJsonFormat.readFeatures(geoJsonString, {
+        dataProjection: 'EPSG:4326',
+        featureProjection: 'EPSG:3857'
+      })
+
+      return new VectorLayer({
+        source: new VectorSource({
+          features: layerFeatures
+        }),
+        style: (feature) => {
+          const geometryType = feature.getGeometry()?.getType()
+          return getStyleForGeometry(geometryType)
+        }
+      })
+    },
+    { extent }
+  )
+}
+
+const handleImportConfirm = async () => {
+  if (!importState.file) {
+    importState.error = '请选择需要导入的 .shp 文件。'
+    return
+  }
+
+  if (!/\.shp$/i.test(importState.file.name)) {
+    importState.error = '仅支持扩展名为 .shp 的文件。'
+    return
+  }
+
+  try {
+    importState.loading = true
+    const arrayBuffer = await importState.file.arrayBuffer()
+    const featureCollection = parseShapefile(arrayBuffer)
+
+    if (!featureCollection.features.length) {
+      throw new Error('未在文件中解析到要素。')
+    }
+
+    const layerTitle = importState.file.name.replace(/\.shp$/i, '')
+    const leaf = createImportedLeaf(featureCollection, layerTitle)
+    importedLayerGroup.children.push(leaf)
+    addLeafToExistingMaps(leaf)
+
+    showImportDialog.value = false
+  } catch (error) {
+    importState.error = error?.message || '解析 SHP 文件失败。'
+  } finally {
+    importState.loading = false
+  }
+}
+
+onMounted(() => {
+  sharedView = new View({
+    center: fromLonLat([105, 35]),
+    zoom: 4
+  })
+
+  if (leftMap.value) {
+    const leftInstance = createMap(leftMap.value, sharedView)
+    registerMapInstance('left', leftInstance)
+  }
+
+  if (isShutterOpen.value && rightMap.value) {
+    const rightInstance = createMap(rightMap.value, sharedView)
+    registerMapInstance('right', rightInstance)
+  }
+})
+
+watch(isShutterOpen, (open) => {
+  if (open) {
+    nextTick(() => {
+      ensureRightMap()
+    })
+  } else {
+    destroyMap('right')
+  }
 })
 
 onBeforeUnmount(() => {
-  createdMaps.forEach((mapInstance) => mapInstance.setTarget(null))
-  createdMaps = []
+  destroyMap('right')
+  destroyMap('left')
   forEachOverlayLeaf((leaf) => {
-    leaf.instances.splice(0, leaf.instances.length)
+    leaf.instances.clear()
   })
-  roadNetworkOverlay.instances.splice(0, roadNetworkOverlay.instances.length)
+  roadNetworkOverlay.instances.clear()
 })
 </script>
 
@@ -772,6 +1062,11 @@ onBeforeUnmount(() => {
   transform: translateY(-2px);
 }
 
+.toolbar-button.is-active {
+  background: #145cd6;
+  box-shadow: 0 4px 12px rgba(20, 92, 214, 0.35);
+}
+
 .toolbar-button:focus {
   outline: 2px solid #fff;
   outline-offset: 2px;
@@ -780,5 +1075,77 @@ onBeforeUnmount(() => {
 .icon {
   font-size: 18px;
   line-height: 1;
+}
+
+.import-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.import-dialog {
+  width: 360px;
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2);
+}
+
+.import-dialog h3 {
+  margin: 0 0 12px;
+  font-size: 18px;
+  font-weight: 600;
+  color: #263238;
+}
+
+.import-dialog p {
+  margin: 0 0 16px;
+  color: #607d8b;
+  font-size: 14px;
+}
+
+.file-input {
+  width: 100%;
+  margin-bottom: 12px;
+}
+
+.import-error {
+  color: #d32f2f;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.import-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.import-actions button {
+  min-width: 88px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.import-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.import-actions .cancel-btn {
+  background: #eceff1;
+  color: #546e7a;
+}
+
+.import-actions .confirm-btn {
+  background: #1e88e5;
+  color: #ffffff;
 }
 </style>
