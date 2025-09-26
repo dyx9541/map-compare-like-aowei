@@ -106,6 +106,17 @@
       <button
         class="toolbar-button"
         type="button"
+        title="卷帘开关"
+        aria-label="卷帘开关"
+        :class="{ 'is-active': isShutterOpen }"
+        :aria-pressed="isShutterOpen ? 'true' : 'false'"
+        @click="toggleShutter"
+      >
+        <span class="icon" aria-hidden="true">🪟</span>
+      </button>
+      <button
+        class="toolbar-button"
+        type="button"
         title="图层管理"
         aria-label="图层管理"
         :aria-pressed="showLayerPanel ? 'true' : 'false'"
@@ -193,12 +204,12 @@
       </button>
     </div>
     <div ref="leftMap" class="map"></div>
-    <div ref="rightMap" class="map"></div>
+    <div v-if="isShutterOpen" ref="rightMap" class="map"></div>
   </div>
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import Map from 'ol/Map'
 import View from 'ol/View'
 import TileLayer from 'ol/layer/Tile'
@@ -219,7 +230,9 @@ import 'ol/ol.css'
 
 const leftMap = ref(null)
 const rightMap = ref(null)
-let createdMaps = []
+const isShutterOpen = ref(true)
+const mapInstances = new Map()
+let sharedView = null
 
 const showBasemapPanel = ref(false)
 const showLayerPanel = ref(false)
@@ -236,7 +249,7 @@ const createOverlayLeaf = (key, title, createLayer) => ({
   title,
   createLayer,
   visible: true,
-  instances: []
+  instances: new Map()
 })
 
 const overlayLayerTree = reactive([
@@ -444,7 +457,7 @@ const selectBasemap = (key) => {
   selectedBasemap.value = key
   const newLayerFactory = () => createBasemapLayer(key)
 
-  createdMaps.forEach((mapInstance) => {
+  mapInstances.forEach((mapInstance) => {
     if (!mapInstance) return
 
     const layers = mapInstance.getLayers()
@@ -471,7 +484,7 @@ const roadNetworkOverlay = {
         maxZoom: 19
       })
     }),
-  instances: []
+  instances: new Map()
 }
 
 const toggleRoadNetwork = () => {
@@ -511,37 +524,107 @@ const createMap = (target, view) =>
     view
   })
 
-onMounted(() => {
-  const view = new View({
+const registerMapInstance = (mapId, mapInstance) => {
+  mapInstances.set(mapId, mapInstance)
+
+  const roadNetworkLayer = roadNetworkOverlay.createLayer()
+  roadNetworkLayer.setVisible(showRoadNetwork.value)
+  mapInstance.addLayer(roadNetworkLayer)
+  roadNetworkOverlay.instances.set(mapId, roadNetworkLayer)
+
+  forEachOverlayLeaf((leaf) => {
+    const layerInstance = leaf.createLayer()
+    layerInstance.setVisible(leaf.visible)
+    mapInstance.addLayer(layerInstance)
+    leaf.instances.set(mapId, layerInstance)
+  })
+}
+
+const destroyMap = (mapId) => {
+  const mapInstance = mapInstances.get(mapId)
+  if (!mapInstance) {
+    return
+  }
+
+  const roadNetworkLayer = roadNetworkOverlay.instances.get(mapId)
+  if (roadNetworkLayer) {
+    mapInstance.removeLayer(roadNetworkLayer)
+    roadNetworkOverlay.instances.delete(mapId)
+  }
+
+  forEachOverlayLeaf((leaf) => {
+    const layerInstance = leaf.instances.get(mapId)
+    if (layerInstance) {
+      mapInstance.removeLayer(layerInstance)
+      leaf.instances.delete(mapId)
+    }
+  })
+
+  mapInstance.setTarget(null)
+  mapInstances.delete(mapId)
+}
+
+const ensureRightMap = () => {
+  if (!isShutterOpen.value || mapInstances.has('right')) {
+    return
+  }
+
+  const target = rightMap.value
+  if (!target) {
+    return
+  }
+
+  const view = sharedView || mapInstances.get('left')?.getView() || new View({
     center: fromLonLat([105, 35]),
     zoom: 4
   })
 
-  createdMaps = [leftMap.value, rightMap.value]
-    .filter(Boolean)
-    .map((target) => {
-      const mapInstance = createMap(target, view)
-      const roadNetworkLayer = roadNetworkOverlay.createLayer()
-      roadNetworkLayer.setVisible(showRoadNetwork.value)
-      mapInstance.addLayer(roadNetworkLayer)
-      roadNetworkOverlay.instances.push(roadNetworkLayer)
-      forEachOverlayLeaf((leaf) => {
-        const layerInstance = leaf.createLayer()
-        layerInstance.setVisible(leaf.visible)
-        mapInstance.addLayer(layerInstance)
-        leaf.instances.push(layerInstance)
-      })
-      return mapInstance
+  if (!sharedView) {
+    sharedView = view
+  }
+
+  const mapInstance = createMap(target, view)
+  registerMapInstance('right', mapInstance)
+}
+
+const toggleShutter = () => {
+  isShutterOpen.value = !isShutterOpen.value
+}
+
+onMounted(() => {
+  sharedView = new View({
+    center: fromLonLat([105, 35]),
+    zoom: 4
+  })
+
+  if (leftMap.value) {
+    const leftInstance = createMap(leftMap.value, sharedView)
+    registerMapInstance('left', leftInstance)
+  }
+
+  if (isShutterOpen.value && rightMap.value) {
+    const rightInstance = createMap(rightMap.value, sharedView)
+    registerMapInstance('right', rightInstance)
+  }
+})
+
+watch(isShutterOpen, (open) => {
+  if (open) {
+    nextTick(() => {
+      ensureRightMap()
     })
+  } else {
+    destroyMap('right')
+  }
 })
 
 onBeforeUnmount(() => {
-  createdMaps.forEach((mapInstance) => mapInstance.setTarget(null))
-  createdMaps = []
+  destroyMap('right')
+  destroyMap('left')
   forEachOverlayLeaf((leaf) => {
-    leaf.instances.splice(0, leaf.instances.length)
+    leaf.instances.clear()
   })
-  roadNetworkOverlay.instances.splice(0, roadNetworkOverlay.instances.length)
+  roadNetworkOverlay.instances.clear()
 })
 </script>
 
@@ -770,6 +853,11 @@ onBeforeUnmount(() => {
 .toolbar-button:hover {
   background: #145cd6;
   transform: translateY(-2px);
+}
+
+.toolbar-button.is-active {
+  background: #145cd6;
+  box-shadow: 0 4px 12px rgba(20, 92, 214, 0.35);
 }
 
 .toolbar-button:focus {
