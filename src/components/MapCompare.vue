@@ -245,8 +245,8 @@
 <script setup>
 import { nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import mapboxgl from 'mapbox-gl'
-import 'mapbox-gl/dist/mapbox-gl.css'
-import { parseShapefile } from '../utils/shapefile'
+// import 'mapbox-gl/dist/mapbox-gl.css'
+import { parseShapefile } from '@/utils/shapefile'
 
 mapboxgl.accessToken = 'pk.eyJ1IjoiZHl4OTU0MSIsImEiOiJjbTRtaXNwYzYwZG1iMnJxNTBhOWhxbHpkIn0.frfrK_nT-Uh72O5LscRRqA'
 
